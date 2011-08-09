@@ -19,9 +19,10 @@ require 'cijoe/commit'
 require 'cijoe/build'
 require 'cijoe/campfire'
 require 'cijoe/server'
+require 'cijoe/queue'
 
 class CIJoe
-  attr_reader :user, :project, :url, :current_build, :last_build
+  attr_reader :user, :project, :url, :current_build, :last_build, :campfire
 
   def initialize(project_path)
     @project_path = File.expand_path(project_path)
@@ -29,8 +30,11 @@ class CIJoe
     @user, @project = git_user_and_project
     @url = "http://github.com/#{@user}/#{@project}"
 
+    @campfire = CIJoe::Campfire.new(project_path)
+
     @last_build = nil
     @current_build = nil
+    @queue = Queue.new(!repo_config.buildqueue.to_s.empty?, true)
 
     trap("INT") { stop }
   end
@@ -47,12 +51,6 @@ class CIJoe
 
   # kill the child and exit
   def stop
-    # another build waits
-    if !repo_config.buildallfile.to_s.empty? && File.exist?(repo_config.buildallfile.to_s)
-      # clean out on stop
-      FileUtils.rm(repo_config.buildallfile.to_s)
-    end
-
     Process.kill(9, pid) if pid
     exit!
   end
@@ -77,33 +75,22 @@ class CIJoe
     @current_build = nil
     write_build 'current', @current_build
     write_build 'last', @last_build
-    @last_build.notify if @last_build.respond_to? :notify
+    @campfire.notify(@last_build) if @campfire.valid?
 
-    # another build waits
-    if !repo_config.buildallfile.to_s.empty? && File.exist?(repo_config.buildallfile.to_s)
-      # clean out before new build
-      FileUtils.rm(repo_config.buildallfile.to_s)
-      build
-    end
+    build(@queue.next_branch_to_build) if @queue.waiting?
   end
 
   # run the build but make sure only one is running
   # at a time (if new one comes in we will park it)
-  def build
+  def build(branch=nil)
     if building?
-      # only if switched on to build all incoming requests
-      if !repo_config.buildallfile.to_s.empty?
-        # and there is no previous request
-        return if File.exist?(repo_config.buildallfile.to_s)
-        # we will mark awaiting builds
-        FileUtils.touch(repo_config.buildallfile.to_s)
-      end
+      @queue.append_unless_already_exists(branch)
       # leave anyway because a current build runs
       return
     end
     @current_build = Build.new(@project_path, @user, @project)
     write_build 'current', @current_build
-    Thread.new { build! }
+    Thread.new { build!(branch) }
   end
 
   def open_pipe(cmd)
@@ -121,23 +108,26 @@ class CIJoe
   end
 
   # update git then run the build
-  def build!
+  def build!(branch=nil)
+    @git_branch = branch
     build = @current_build
     output = ''
     git_update
     build.sha = git_sha
+    build.branch = git_branch
     write_build 'current', build
 
     open_pipe("cd #{@project_path} && #{runner_command} 2>&1") do |pipe, pid|
-      puts "#{Time.now.to_i}: Building #{build.short_sha}: pid=#{pid}"
+      puts "#{Time.now.to_i}: Building #{build.branch} at #{build.short_sha}: pid=#{pid}"
 
       build.pid = pid
       write_build 'current', build
       output = pipe.read
     end
 
-    Process.waitpid(build.pid)
+    Process.waitpid(build.pid, 1)
     status = $?.exitstatus.to_i
+    @current_build = build
     puts "#{Time.now.to_i}: Built #{build.short_sha}: status=#{status}"
 
     status == 0 ? build_worked(output) : build_failed('', output)
@@ -166,8 +156,9 @@ class CIJoe
   end
 
   def git_branch
+    return @git_branch if @git_branch
     branch = repo_config.branch.to_s
-    branch == '' ? "master" : branch
+    @git_branch = branch == '' ? "master" : branch
   end
 
   # massage our repo
@@ -185,22 +176,21 @@ class CIJoe
           {}
         end
 
+      orig_ENV = ENV.to_hash
+      ENV.clear
       data.each{ |k, v| ENV[k] = v }
-      ret = `cd #{@project_path} && sh #{file}`
-      data.each{ |k, v| ENV[k] = nil }
-      ret
+      output = `cd #{@project_path} && sh #{file}`
+      
+      ENV.clear
+      orig_ENV.to_hash.each{ |k, v| ENV[k] = v}
+      output
     end
   end
 
   # restore current / last build state from disk.
   def restore
-    unless @last_build
-      @last_build = read_build('last')
-    end
-
-    unless @current_build
-      @current_build = read_build('current')
-    end
+    @last_build = read_build('last')
+    @current_build = read_build('current')
 
     Process.kill(0, @current_build.pid) if @current_build && @current_build.pid
   rescue Errno::ESRCH

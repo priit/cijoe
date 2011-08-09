@@ -1,74 +1,73 @@
 class CIJoe
-  module Campfire
-    def self.activate(project_path)
+  class Campfire
+    attr_reader :project_path, :build
+    
+    def initialize(project_path)
       @project_path = project_path
-
-      if valid_config?
+      if valid?
         require 'tinder'
-
-        CIJoe::Build.class_eval do
-          include CIJoe::Campfire
-        end
-
-        puts "Loaded Campfire notifier"
-      else
-        puts "Can't load Campfire notifier."
+        puts "Loaded Campfire notifier for #{project_path}."
+      elsif ENV['RACK_ENV'] != 'test'
+        puts "Can't load Campfire notifier for #{project_path}."
         puts "Please add the following to your project's .git/config:"
         puts "[campfire]"
-        puts "\tuser = your@campfire.email"
-        puts "\tpass = passw0rd"
+        puts "\ttoken = abcd1234"
         puts "\tsubdomain = whatever"
         puts "\troom = Awesomeness"
         puts "\tssl = false"
       end
     end
-
-    def self.config
-      campfire_config = Config.new('campfire', @project_path)
-      @config ||= {
+    
+    def campfire_config
+      campfire_config = Config.new('campfire', project_path)
+      @config = {
         :subdomain => campfire_config.subdomain.to_s,
-        :user      => campfire_config.user.to_s,
-        :pass      => campfire_config.pass.to_s,
+        :token     => campfire_config.token.to_s,
         :room      => campfire_config.room.to_s,
         :ssl       => campfire_config.ssl.to_s.strip == 'true'
       }
     end
 
-    def self.valid_config?
-      %w( subdomain user pass room ).all? do |key|
-        !config[key.intern].empty?
+    def valid?
+      %w( subdomain token room ).all? do |key|
+        !campfire_config[key.intern].empty?
       end
     end
 
-    def notify
-      room.speak "#{short_message}. #{commit.url}"
-      room.paste full_message if failed?
-      room.leave
+    def notify(build)
+      begin
+        @build = build
+        room.speak "#{short_message}. #{build.commit.url}"
+        room.paste full_message if build.failed?
+        room.leave
+      rescue
+        puts "Please check your campfire config for #{project_path}."
+      end
     end
 
   private
     def room
       @room ||= begin
-        config = Campfire.config
+        config = campfire_config
         campfire = Tinder::Campfire.new(config[:subdomain],
-            :username => config[:user],
-            :password => config[:pass],
+            :token => config[:token],
             :ssl => config[:ssl] || false)
         campfire.find_room_by_name(config[:room])
       end
     end
 
     def short_message
-      "Build #{short_sha} of #{project} #{worked? ? "was successful" : "failed"}"
+      "#{build.branch} at #{build.short_sha} of #{build.project} " +
+        (build.worked? ? "passed" : "failed") + " (#{build.duration.to_i}s)"
     end
 
     def full_message
       <<-EOM
-Commit Message: #{commit.message}
-Commit Date: #{commit.committed_at}
-Commit Author: #{commit.author}
+Commit Message: #{build.commit.message}
+Commit Date: #{build.commit.committed_at}
+Commit Author: #{build.commit.author}
 
-#{clean_output}
+#{build.clean_output}
 EOM
     end
   end

@@ -2,6 +2,7 @@
 $LOAD_PATH.unshift File.dirname(__FILE__) + '/../lib'
 
 require 'choice'
+require 'cijoe'
 
 Choice.options do
   banner "Usage: #{File.basename(__FILE__)} [-hpv] path_to_git_repo"
@@ -46,6 +47,4 @@ end
 
 options = Choice.choices
 
-require 'cijoe'
-
-CIJoe::Server.start(options[:host], options[:port], File.expand_path(Choice.rest[0]))
+CIJoe::Server.start(options[:host], options[:port], File.expand_path(Choice.rest[0].to_s))

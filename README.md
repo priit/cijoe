@@ -7,7 +7,9 @@ server that'll run your tests on demand and report their pass/fail status.
 
 Because knowing is half the battle.
 
-![The Battle](http://img.skitch.com/20090805-g4a2qhttwij8n2jr9t552efn3k.png)
+[![The Battle](http://img.skitch.com/20090805-g4a2qhttwij8n2jr9t552efn3k.png)](http://nerduo.com/thebattle/)
+
+([Buy the shirt](http://nerduo.com/thebattle/))
 
 Quickstart
 ----------
@@ -47,6 +49,9 @@ put whatever you want in there.
 Tip: your repo's `HEAD` will point to the commit used to run the
 build. Pull any metadata you want out of that scro.
 
+** WARNING ** Do not run this against a git repo that has unpushed
+  commits, as this will do a hard reset against the github remote and
+wipe out unpushed changes.
 
 Other Branches
 ----------------------
@@ -56,13 +61,13 @@ Want joe to run against a branch other than `master`? No problem:
     $ git config --add cijoe.branch deploy
 
 
-Concurrent Push's - a kind of "queueing"
+Queueing
 ----------------------------------------
 
 Joe runs just one build at the time. If you expect concurrent push's
 to your repo and want joe to build each in a kind of queue, just set:
 
-    $ git config --add cijoe.buildallfile tmp/cijoe.txt
+    $ git config --add cijoe.buildqueue true
 
 Joe will save requests while another build runs. If more than one push
 hits joe, he just picks the last after finishing the prior.
@@ -75,8 +80,7 @@ Campfire notification is included, because it's what we use. Want Joe
 notify your Campfire? Put this in your repo's `.git/config`:
 
     [campfire]
-    	user = your@campfire.email
-    	pass = passw0rd
+    	token = abcd1234
     	subdomain = whatever
     	room = Awesomeness
     	ssl = false
@@ -84,7 +88,7 @@ notify your Campfire? Put this in your repo's `.git/config`:
 Or do it the old fashion way:
 
     $ cd yourrepo
-    $ git config --add campfire.user chris@ozmm.org
+    $ git config --add campfire.token abcd1234
     $ git config --add campfire.subdomain github
     etc.
 
@@ -145,11 +149,18 @@ Other CI Servers
 
 Need more features? More notifiers? Check out one of these bad boys:
 
+* [Jenkins](http://jenkins-ci.org/)
 * [Cerberus](http://cerberus.rubyforge.org/)
 * [Integrity](http://integrityapp.com/)
 * [CruiseControl.rb](http://cruisecontrolrb.thoughtworks.com/)
 * [BuildBot](http://buildbot.net/trac)
 * [Signal](http://www.github.com/dcrec1/signal)
+
+
+Does GitHub use cijoe?
+---------------------------------
+
+No. We use [Jenkins](http://jenkins-ci.org/).
 
 
 Screenshots
@@ -163,7 +174,4 @@ Screenshots
 Questions? Concerns?
 ---------------------------------
 
-[Issues](http://github.com/defunkt/cijoe/issues) or [the mailing list](http://groups.google.com/group/cijoe).
-
-
-( Chris Wanstrath :: chris@ozmm.org )
+[Issues](http://github.com/defunkt/cijoe/issues)

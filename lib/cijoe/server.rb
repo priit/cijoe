@@ -1,5 +1,6 @@
 require 'sinatra/base'
 require 'erb'
+require 'json'
 
 class CIJoe
   class Server < Sinatra::Base
@@ -27,11 +28,30 @@ class CIJoe
     end
 
     post '/?' do
-      payload = params[:payload].to_s
-      if payload.empty? || payload.include?(joe.git_branch)
-        joe.build
+      unless params[:rebuild]
+        payload = JSON.parse(params[:payload])
+        pushed_branch = payload["ref"].split('/').last
       end
+      
+      # Only build if we were given an explicit branch via `?branch=blah`
+      # or the payload exists and the "ref" property matches our 
+      # specified build branch.
+      if params[:branch] || params[:rebuild] || pushed_branch == joe.git_branch
+        joe.build(params[:branch])
+      end
+
       redirect request.path
+    end
+
+    get '/api/json' do
+        response  = [200, {'Content-Type' => 'application/json'}]
+        response_json = erb(:json, {}, :joe => joe)
+      if params[:jsonp]
+        response << params[:jsonp] + '(' +  response_json + ')'
+      else
+        response << response_json
+      end
+      response
     end
 
 
@@ -60,13 +80,16 @@ class CIJoe
       super
       check_project
       @joe = CIJoe.new(options.project_path)
-
-      CIJoe::Campfire.activate(options.project_path)
     end
 
     def self.start(host, port, project_path)
       set :project_path, project_path
       CIJoe::Server.run! :host => host, :port => port
+    end
+
+    def self.rack_start(project_path)
+      set :project_path, project_path
+      self.new
     end
 
     def self.project_path=(project_path)
