@@ -51,8 +51,16 @@ class CIJoe
       @commit ||= Commit.new(sha, user, project, project_path)
     end
 
+    def commit_message
+      commit.message if commit
+    end
+
+    def commit_url
+      commit.url if commit
+    end
+
     def dump(file)
-      config = [user, project, started_at, finished_at, sha, status, output, pid]
+      config = [commit_message, commit_url, user, project, started_at, finished_at, sha, status, output, pid]
       data = YAML.dump(config)
       File.open(file, 'wb') { |io| io.write(data) }
     end
